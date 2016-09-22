@@ -152,6 +152,9 @@ class Hackfoldrs(object):
     def commit_push(self):
         if not self.repo:
             raise 'NoRepoError'
+        elif len(self.repo.index.diff(None)) == 0:
+            logging.info('nothing to commit')
+            return
 
         logging.info('git add .')
         self.repo.index.add('*')
