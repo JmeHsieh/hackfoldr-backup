@@ -1,5 +1,6 @@
-from git.repo.base import Repo
 import logging
+
+from git.repo.base import NoSuchPathError, Repo
 
 
 class Hackpads(object):
@@ -11,14 +12,13 @@ class Hackpads(object):
 
     def pull_repo(self):
         try:
-            logging.info('git pull: {}'.format(self.repo_url))
-            repo = Repo(self.repo_path)
-            repo.remote().pull()
-        except Exception:
-            logging.info('pull failure')
+            self.repo = Repo(self.repo_path)
+        except NoSuchPathError:
             logging.info('git clone: {}'.format(self.repo_url))
-            repo = Repo.clone_from(self.repo_url, self.repo_path)
-        self.repo = repo
+            self.repo = Repo.clone_from(self.repo_url, self.repo_path)
+        else:
+            logging.info('git pull: {}'.format(self.repo_url))
+            self.repo.remote().pull()
 
     def get_diffs(self, last_commit):
         if not self.repo:
@@ -27,10 +27,14 @@ class Hackpads(object):
         if not last_commit:
             # 'repo.index.entries.keys()' look something like this:
             # [('file1.html', 0), ('file2.html', 0), ('f3.xxx', 0), ...]
-            diff_pads = [k[0][:-len('.html')] for k in self.repo.index.entries.keys() if k[0].endswith('.html')]
+            diff_pads = [k[0][:-len('.html')]
+                         for k in self.repo.index.entries.keys()
+                         if k[0].endswith('.html')]
         else:
             diffs = self.repo.index.diff(last_commit)
-            diff_pads = [d.b_path[:-len('.html')] for d in diffs if d.b_path.endswith('.html')]
+            diff_pads = [d.b_path[:-len('.html')]
+                         for d in diffs
+                         if d.b_path.endswith('.html')]
 
         logging.info('last commit:{}'.format(last_commit))
         logging.info('cur head:{}'.format(self.repo.head.commit))

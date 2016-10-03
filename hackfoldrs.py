@@ -1,13 +1,14 @@
 from bs4 import BeautifulSoup, SoupStrainer
 from collections import OrderedDict
-from git.repo.base import Repo
 import json
 import logging
 from os import listdir, makedirs
 from os.path import isfile, join, splitext
-import requests
 from urllib.parse import urlparse
 import shutil
+
+from git.repo.base import NoSuchPathError, Repo
+import requests
 
 
 class Hackfoldrs(object):
@@ -62,12 +63,12 @@ class Hackfoldrs(object):
         csv, source = None, None
 
         r_ethercalc = requests.get(ethercalc)
-        if r_ethercalc.status_code is 200:
+        if r_ethercalc.status_code == 200:
             csv = r_ethercalc.json()
             source = 'ethercalc'
         else:
             r_google = requests.get(google)
-            if r_google.status_code is 200:
+            if r_google.status_code == 200:
 
                 # reformat as ethercalc
                 ordered_json = r_google.json(object_pairs_hook=OrderedDict)
@@ -83,8 +84,8 @@ class Hackfoldrs(object):
         return (csv, source)
 
     def _merge_foldr(self, old, new):
-        old.update(**{k: v for k, v in new.items()
-                      if not isinstance(v, list) and not isinstance(v, dict)})
+        old.update({k: v for k, v in new.items()
+                    if not (isinstance(v, list) or isinstance(v, dict))})
         for k, v in new.items():
             if isinstance(v, list):
                 _o = set(old.get(k, []))
@@ -96,14 +97,13 @@ class Hackfoldrs(object):
 
     def pull_repo(self):
         try:
-            logging.info('git pull: {}'.format(self.repo_url))
-            repo = Repo(self.repo_path)
-            repo.remote().pull()
-        except Exception:
-            logging.info('pull failure')
+            self.repo = Repo(self.repo_path)
+        except NoSuchPathError:
             logging.info('git clone: {}'.format(self.repo_url))
-            repo = Repo.clone_from(self.repo_url, self.repo_path)
-        self.repo = repo
+            self.repo = Repo.clone_from(self.repo_url, self.repo_path)
+        else:
+            logging.info('git pull: {}'.format(self.repo_url))
+            self.repo.remote().pull()
 
     def gen_foldrs(self, diff_pads, pads_path):
         makedirs(self.gen_foldrs_path, exist_ok=True)
@@ -125,11 +125,11 @@ class Hackfoldrs(object):
                if 'source' in f}
 
         # merge old foldrs with the new
-        with open(join(self.repo_path, fn), 'r') as f:
-            try:
+        try:
+            with open(join(self.repo_path, fn), 'r') as f:
                 old = json.load(f)
-            except:
-                old = {}
+        except OSError:
+            old = {}
         for _id in old:
             self._merge_foldr(old[_id], new.get(_id, {}))
 
