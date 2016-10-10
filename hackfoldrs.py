@@ -47,7 +47,7 @@ class Hackfoldrs(object):
                     if len(paths) < 2 or not paths[1]:
                         continue
 
-                    foldr_url = url
+                    foldr_url = parsed._replace(path=''.join(paths[:2])).geturl()
                     foldr_id = paths[1]
                     if foldr_id not in foldrs:
                         foldrs[foldr_id] = {'url': foldr_url, 'hackpads': set()}
