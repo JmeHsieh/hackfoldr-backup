@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup, SoupStrainer
 from collections import OrderedDict
 from copy import deepcopy
+from datetime import datetime, timezone
 import json
 import logging
 from os import listdir, makedirs
@@ -10,6 +11,7 @@ import shutil
 
 from git.repo.base import NoSuchPathError, Repo
 import requests
+from requests import HTTPError
 
 
 class Hackfoldrs(object):
@@ -55,35 +57,6 @@ class Hackfoldrs(object):
 
         return foldrs
 
-    def _get_csv(self, foldr_id):
-        """ In most cases, csv comes from ethercalc,
-        but some comes from google spreadsheets."""
-
-        ethercalc = 'https://ethercalc.org/_/{}/csv.json'.format(foldr_id)
-        google = 'https://spreadsheets.google.com/feeds/list/{}/od6/public/values?alt=json'.format(foldr_id)
-        csv, source = None, None
-
-        r_ethercalc = requests.get(ethercalc)
-        if r_ethercalc.status_code == 200:
-            csv = r_ethercalc.json()
-            source = 'ethercalc'
-        else:
-            r_google = requests.get(google)
-            if r_google.status_code == 200:
-
-                # reformat as ethercalc
-                ordered_json = r_google.json(object_pairs_hook=OrderedDict)
-                rows = [[(k[len('gsx$'):], v['$t'])
-                        for (k, v) in e.items() if k.startswith('gsx$')]
-                        for e in ordered_json['feed']['entry']]
-                if rows:
-                    column_names = ['#' + t[0] for t in rows[0]]
-                    row_values = [[t[1] for t in r] for r in rows]
-                    csv = [column_names] + row_values
-                    source = 'google'
-
-        return (csv, source)
-
     def _merged_foldr(self, old, new):
         _old = deepcopy(old)
         _new = deepcopy(new)
@@ -98,6 +71,51 @@ class Hackfoldrs(object):
             else:
                 _old.update({k: v})
         return _old
+
+    def _get_csv(self, foldr_id):
+        """ In most cases, csv comes from ethercalc,
+        but some comes from google spreadsheets."""
+
+        ethercalc = 'https://ethercalc.org/_/{}/csv.json'.format(foldr_id)
+        google = 'https://spreadsheets.google.com/feeds/list/{}/od6/public/values?alt=json'.format(foldr_id)
+        csv, source, updated_at = None, None, None
+
+        r_ethercalc = requests.get(ethercalc)
+        if r_ethercalc.status_code == 200:
+
+            # get updated_at from log
+            log_url = 'https://ethercalc.org/log/{}'.format(foldr_id)
+            r_ethercalc_log = requests.get(log_url)
+            try:
+                r_ethercalc_log.raise_for_status()
+            except HTTPError:
+                # if csv is 200 ok, so should log
+                # if not, set this as default
+                # this is by far the earliest date I found on ethercalc.org/log
+                history = [{'mtime': 'Wed, 13 Apr 2016 16:55:00 GMT'}]
+            else:
+                history = r_ethercalc_log.json()
+
+            csv = r_ethercalc.json()
+            source = 'ethercalc'
+            updated_at = max(map(lambda h: datetime.strptime(h['mtime'], '%a, %d %b %Y %H:%M:%S GMT'), history))
+        else:
+            r_google = requests.get(google)
+            if r_google.status_code == 200:
+
+                # reformat as ethercalc
+                ordered_json = r_google.json(object_pairs_hook=OrderedDict)
+                rows = [[(k[len('gsx$'):], v['$t'])
+                        for (k, v) in e.items() if k.startswith('gsx$')]
+                        for e in ordered_json['feed']['entry']]
+                if rows:
+                    column_names = ['#' + t[0] for t in rows[0]]
+                    row_values = [[t[1] for t in r] for r in rows]
+                    csv = [column_names] + row_values
+                    source = 'google'
+                    updated_at = datetime.strptime(ordered_json['feed']['updated']['$t'][:-5], '%Y-%m-%dT%H:%M:%S')
+
+        return (csv, source, updated_at)
 
     def pull_repo(self):
         try:
@@ -125,9 +143,10 @@ class Hackfoldrs(object):
 
         # fetch csvs
         for _id, foldr in mix.items():
-            csv, source = self._get_csv(_id)
-            if csv:
-                foldr['source'] = source
+            csv, source, updated_at = self._get_csv(_id)
+            if csv and source and updated_at:
+                foldr.update({'source': source,
+                              'updated_at': updated_at.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')})
                 with open(join(self.gen_foldrs_path, '{}.json').format(_id), 'w') as f:
                     json.dump(csv, f, indent=2, ensure_ascii=False)
 
