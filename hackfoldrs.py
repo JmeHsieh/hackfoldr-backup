@@ -1,5 +1,6 @@
 from bs4 import BeautifulSoup, SoupStrainer
 from collections import OrderedDict
+from copy import deepcopy
 import json
 import logging
 from os import listdir, makedirs
@@ -19,8 +20,8 @@ class Hackfoldrs(object):
         self.repo = None
         self.gen_foldrs_path = gen_foldrs_path
 
-    def _extract_foldrs(self, diff_pads, pads_path):
-        """ Construct hackfoldr indexes by
+    def _find_new_foldrs(self, diff_pads, pads_path):
+        """ Construct new hackfoldr indexes by
         scanning hackfoldr links from hackpad htmls """
 
         with open(join(pads_path, 'pads.json'), 'r') as f:
@@ -83,17 +84,20 @@ class Hackfoldrs(object):
 
         return (csv, source)
 
-    def _merge_foldr(self, old, new):
-        old.update({k: v for k, v in new.items()
-                    if not (isinstance(v, list) or isinstance(v, dict))})
-        for k, v in new.items():
+    def _merged_foldr(self, old, new):
+        _old = deepcopy(old)
+        _new = deepcopy(new)
+        for k, v in _new.items():
             if isinstance(v, list):
-                _o = set(old.get(k, []))
-                _n = set(new.get(k, []))
-                _u = _o.union(_n)
-                old.update({k: sorted(list(_u))})
+                _o = set(_old.get(k, []))
+                _n = set(v)
+                _u = _o & _n
+                _old.update({k: sorted(list(_u))})
             elif isinstance(v, dict):
                 raise NotImplementedError
+            else:
+                _old.update({k: v})
+        return _old
 
     def pull_repo(self):
         try:
@@ -109,33 +113,32 @@ class Hackfoldrs(object):
         makedirs(self.gen_foldrs_path, exist_ok=True)
         fn = 'foldrs.json'
 
-        # write {foldr_id}.json
-        foldrs = self._extract_foldrs(diff_pads, pads_path)
-        for _id, foldr in foldrs.items():
-            (csv, source) = self._get_csv(_id)
-            if csv:
-                foldr['source'] = source
-                with open(join(self.gen_foldrs_path, '{}.json').format(_id), 'w') as f:
-                    json.dump(csv, f, indent=2, ensure_ascii=False)
-
-        # Set.toList foldr['hackpads']
-        # filter . ((HashMap.hasKey 'source') . (.value)) $ foldrs
-        new = {_id: f.update({'hackpads': list(f['hackpads'])}) or f
-               for _id, f in foldrs.items()
-               if 'source' in f}
-
-        # merge old foldrs with the new
+        # merge old w/ new
         try:
             with open(join(self.repo_path, fn), 'r') as f:
                 old = json.load(f)
         except OSError:
             old = {}
-        for _id in old:
-            self._merge_foldr(old[_id], new.get(_id, {}))
+        new = self._find_new_foldrs(diff_pads, pads_path)
+        mix = {_id: self._merged_foldr(old.get(_id, {}), new.get(_id, {}))
+               for _id in old.keys() | new.keys()}
+
+        # fetch csvs
+        for _id, foldr in mix.items():
+            csv, source = self._get_csv(_id)
+            if csv:
+                foldr['source'] = source
+                with open(join(self.gen_foldrs_path, '{}.json').format(_id), 'w') as f:
+                    json.dump(csv, f, indent=2, ensure_ascii=False)
+
+        # convert set to list
+        # remove foldrs without 'source' key
+        clean = {_id: f.update({'hackpads': list(f['hackpads'])}) or f
+                 for _id, f in mix.items() if 'source' in f}
 
         # write foldrs.json
         with open(join(self.gen_foldrs_path, fn), 'w') as f:
-            json.dump(old, f, sort_keys=True, indent=2, ensure_ascii=False)
+            json.dump(clean, f, sort_keys=True, indent=2, ensure_ascii=False)
 
         logging.info('gen foldrs complete')
 

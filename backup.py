@@ -43,17 +43,14 @@ def backup():
         last_commit = None
 
     diff_pads = hackpads.get_diffs(last_commit)
-    if not diff_pads:
-        logging.info('no diff pads since last pull.')
-    else:
-        hackfoldrs.gen_foldrs(diff_pads, pads_path)
-        hackfoldrs.copy_to_repo()
-        hackfoldrs.commit_push()
-        hackfoldrs.clean_gened_foldrs()
+    hackfoldrs.gen_foldrs(diff_pads, pads_path)
+    hackfoldrs.copy_to_repo()
+    hackfoldrs.commit_push()
+    hackfoldrs.clean_gened_foldrs()
 
-        logging.info('update latest commit sha')
-        with open(join(DATA, 'last_commit.txt'), 'w') as f:
-            f.write(hackpads.latest_commit())
+    logging.info('update latest commit sha')
+    with open(join(DATA, 'last_commit.txt'), 'w') as f:
+        f.write(hackpads.latest_commit())
 
 
 if __name__ == '__main__':
