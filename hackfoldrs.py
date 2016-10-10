@@ -152,7 +152,7 @@ class Hackfoldrs(object):
 
         # convert set to list
         # remove foldrs without 'source' key
-        clean = {_id: f.update({'hackpads': list(f['hackpads'])}) or f
+        clean = {_id: f.update({'hackpads': sorted(list(f['hackpads']))}) or f
                  for _id, f in mix.items() if 'source' in f}
 
         # write foldrs.json
