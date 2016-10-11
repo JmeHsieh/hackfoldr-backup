@@ -11,7 +11,6 @@ import shutil
 
 from git.repo.base import NoSuchPathError, Repo
 import requests
-from requests import HTTPError
 
 
 class Hackfoldrs(object):
@@ -66,56 +65,85 @@ class Hackfoldrs(object):
                 _n = set(v)
                 _u = _o | _n
                 _old.update({k: sorted(list(_u))})
+            elif isinstance(v, set):
+                _u = _old.get(k, set()) | v
+                _old.update({k: _u})
             elif isinstance(v, dict):
                 raise NotImplementedError
             else:
                 _old.update({k: v})
         return _old
 
-    def _get_csv(self, foldr_id):
-        """ In most cases, csv comes from ethercalc,
-        but some comes from google spreadsheets."""
+    def _get_csv_ethercalc(self, foldr_id, hackfoldr_version):
+        csv, updated_at = None, None
 
-        ethercalc = 'https://ethercalc.org/_/{}/csv.json'.format(foldr_id)
-        google = 'https://spreadsheets.google.com/feeds/list/{}/od6/public/values?alt=json'.format(foldr_id)
-        csv, source, updated_at = None, None, None
+        csv_url = 'https://ethercalc.org/_/{}/csv.json'.format(foldr_id)
+        csv_response = requests.get(csv_url)
+        if csv_response.status_code == 200:
+            csv = csv_response.json()
 
-        r_ethercalc = requests.get(ethercalc)
-        if r_ethercalc.status_code == 200:
+            # redirect case: ethercalc -> google
+            A1 = csv[0][0]
+            if hackfoldr_version >= 2.0 and not A1.startswith('#') and len(A1) >= 40:
+                gsheets_id = A1
+                return self._get_csv_google(gsheets_id)
 
-            # get updated_at from log
+            # normal case:
             log_url = 'https://ethercalc.org/log/{}'.format(foldr_id)
-            r_ethercalc_log = requests.get(log_url)
-            try:
-                r_ethercalc_log.raise_for_status()
-            except HTTPError:
-                # if csv is 200 ok, so should log
-                # if not, set this as default
-                # this is by far the earliest date I found on ethercalc.org/log
-                history = [{'mtime': 'Wed, 13 Apr 2016 16:55:00 GMT'}]
-            else:
-                history = r_ethercalc_log.json()
+            log_response = requests.get(log_url)
+            if log_response.status_code == 200:
+                csv = csv_response.json()
+                history = log_response.json()
+                updated_at = max(map(lambda h: datetime.strptime(h['mtime'], '%a, %d %b %Y %H:%M:%S GMT'), history)).replace(tzinfo=timezone.utc)
 
-            csv = r_ethercalc.json()
-            source = 'ethercalc'
-            updated_at = max(map(lambda h: datetime.strptime(h['mtime'], '%a, %d %b %Y %H:%M:%S GMT'), history))
-        else:
-            r_google = requests.get(google)
-            if r_google.status_code == 200:
+        return csv, updated_at
 
-                # reformat as ethercalc
-                ordered_json = r_google.json(object_pairs_hook=OrderedDict)
-                rows = [[(k[len('gsx$'):], v['$t'])
-                        for (k, v) in e.items() if k.startswith('gsx$')]
-                        for e in ordered_json['feed']['entry']]
-                if rows:
-                    column_names = ['#' + t[0] for t in rows[0]]
-                    row_values = [[t[1] for t in r] for r in rows]
-                    csv = [column_names] + row_values
-                    source = 'google'
-                    updated_at = datetime.strptime(ordered_json['feed']['updated']['$t'][:-5], '%Y-%m-%dT%H:%M:%S')
+    def _get_csv_google(self, foldr_id):
+        csv, updated_at = None, None
 
-        return (csv, source, updated_at)
+        csv_url = 'https://spreadsheets.google.com/feeds/list/{}/od6/public/values?alt=json'.format(foldr_id)
+        csv_response = requests.get(csv_url)
+        if csv_response.status_code == 200:
+            ordered_json = csv_response.json(object_pairs_hook=OrderedDict)
+
+            # reformat as ethercalc
+            rows = [[(k[len('gsx$'):], v['$t'])
+                    for (k, v) in e.items() if k.startswith('gsx$')]
+                    for e in ordered_json['feed']['entry']]
+            if rows:
+                column_names = ['#' + t[0] for t in rows[0]]
+                row_values = [[t[1] for t in r] for r in rows]
+                csv = [column_names] + row_values
+                updated_at = datetime.strptime(ordered_json['feed']['updated']['$t'][:-5], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+
+        return csv, updated_at
+
+    def _get_csv(self, foldr_id, hackfoldr_version):
+        """ In most cases, csv comes from ethercalc,
+        but some comes from google spreadsheets.
+
+        We will try google first, because ethercalc
+        is too easy to create a new.
+
+        e.g. We can easily copy gsheets_id and
+        ```
+        $ curl -XGET https://ethercalc.org/gsheets_id
+        ```
+        to create a same_gsheets_id sheet on ethercalc.
+
+        If we try ethercalc first, we won't be able to
+        reach the actual csv source if it's on google.
+        """
+
+        csv, updated_at = self._get_csv_google(foldr_id)
+        if csv and updated_at:
+            return ('google', csv, updated_at)
+
+        csv, updated_at = self._get_csv_ethercalc(foldr_id, hackfoldr_version)
+        if csv and updated_at:
+            return ('ethercalc', csv, updated_at)
+
+        return (None, None, None)
 
     def pull_repo(self):
         try:
@@ -135,6 +163,8 @@ class Hackfoldrs(object):
         try:
             with open(join(self.repo_path, fn), 'r') as f:
                 old = json.load(f)
+                for v in old.values():
+                    v.update({'hackpads': set(v.get('hackpads', []))})
         except OSError:
             old = {}
         new = self._find_new_foldrs(diff_pads, pads_path)
@@ -143,14 +173,15 @@ class Hackfoldrs(object):
 
         # fetch csvs
         for _id, foldr in mix.items():
-            csv, source, updated_at = self._get_csv(_id)
-            if csv and source and updated_at:
+            hackfoldr_version = 2.0 if 'beta' in foldr.get('url', '') else 1.0
+            source, csv, updated_at = self._get_csv(_id, hackfoldr_version)
+            if source and csv and updated_at:
                 foldr.update({'source': source,
-                              'updated_at': updated_at.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')})
+                              'updated_at': updated_at.isoformat().replace('+00:00', 'Z')})
                 with open(join(self.gen_foldrs_path, '{}.json').format(_id), 'w') as f:
                     json.dump(csv, f, indent=2, ensure_ascii=False)
 
-        # convert set to list
+        # convert 'hackpads' from set to list
         # remove foldrs without 'source' key
         clean = {_id: f.update({'hackpads': sorted(list(f['hackpads']))}) or f
                  for _id, f in mix.items() if 'source' in f}
