@@ -64,7 +64,7 @@ class Hackfoldrs(object):
             if isinstance(v, list):
                 _o = set(_old.get(k, []))
                 _n = set(v)
-                _u = _o & _n
+                _u = _o | _n
                 _old.update({k: sorted(list(_u))})
             elif isinstance(v, dict):
                 raise NotImplementedError
