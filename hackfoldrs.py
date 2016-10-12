@@ -77,7 +77,10 @@ class Hackfoldrs(object):
     def _get_csv_ethercalc(self, foldr_id, hackfoldr_version):
         csv, updated_at = None, None
 
-        csv_url = 'https://ethercalc.org/_/{}/csv.json'.format(foldr_id)
+        # although ethercalc says json api should looks like this:
+        # `https://ethercalc.org/_/your_id/csv.json`, but
+        # `https://ethercalc.org/your_id.csv.json` is more backward compatible.
+        csv_url = 'https://ethercalc.org/{}.csv.json'.format(foldr_id)
         csv_response = requests.get(csv_url)
         if csv_response.status_code == 200:
             csv = csv_response.json()
