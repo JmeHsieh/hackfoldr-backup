@@ -123,30 +123,15 @@ class Hackfoldrs(object):
 
     def _get_csv(self, foldr_id, hackfoldr_version):
         """ In most cases, csv comes from ethercalc,
-        but some comes from google spreadsheets.
+        but some comes from google spreadsheets. """
 
-        We will try google first, because ethercalc
-        is too easy to create a new.
-
-        e.g. We can easily copy gsheets_id and
-        ```
-        $ curl -XGET https://ethercalc.org/gsheets_id
-        ```
-        to create a same_gsheets_id sheet on ethercalc.
-
-        If we try ethercalc first, we won't be able to
-        reach the actual csv source if it's on google.
-        """
-
-        csv, updated_at = self._get_csv_google(foldr_id)
-        if csv and updated_at:
-            return ('google', csv, updated_at)
-
-        csv, updated_at = self._get_csv_ethercalc(foldr_id, hackfoldr_version)
-        if csv and updated_at:
-            return ('ethercalc', csv, updated_at)
-
-        return (None, None, None)
+        if len(foldr_id) < 40:
+            source = 'ethercalc'
+            csv, updated_at = self._get_csv_ethercalc(foldr_id, hackfoldr_version)
+        else:
+            source = 'google'
+            csv, updated_at = self._get_csv_google(foldr_id)
+        return (source, csv, updated_at)
 
     def pull_repo(self):
         try:
