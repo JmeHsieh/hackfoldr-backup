@@ -173,7 +173,7 @@ class Hackfoldrs(object):
 
         # fetch csvs
         for _id, foldr in mix.items():
-            hackfoldr_version = 2.0 if 'beta' in foldr.get('url', '') else 1.0
+            hackfoldr_version = 2.0 if 'beta' in urlparse(foldr.get('url', '')).netloc else 1.0
             source, csv, updated_at = self._get_csv(_id, hackfoldr_version)
             if source and csv and updated_at:
                 foldr.update({'source': source,
