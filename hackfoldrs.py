@@ -52,6 +52,8 @@ class Hackfoldrs(object):
                     foldr_id = paths[1]
                     if foldr_id not in foldrs:
                         foldrs[foldr_id] = {'url': foldr_url, 'hackpads': set()}
+                    if 'beta' in parsed.netloc:
+                        foldrs[foldr_id]['url'] = foldr_url
                     foldrs[foldr_id]['hackpads'].add(pad_id)
 
         return foldrs
