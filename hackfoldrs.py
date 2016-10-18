@@ -73,6 +73,8 @@ class Hackfoldrs(object):
             elif isinstance(v, dict):
                 raise NotImplementedError
             else:
+                if k == 'url' and 'beta' not in v and _old.get(k, ''):
+                    continue
                 _old.update({k: v})
         return _old
 
