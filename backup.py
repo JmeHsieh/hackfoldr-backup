@@ -7,7 +7,7 @@ from hackfoldrs import Hackfoldrs
 from hackpads import Hackpads
 
 BASE = dirname(abspath(__file__))
-DATA = join(BASE, 'data')
+DATA = join(BASE, '_data')
 GEN_FOLDRS = join(DATA, 'gen_foldrs')
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s', datefmt='%I:%M:%S %p')
 
