@@ -1,4 +1,4 @@
 {
-    "hackpad_repo_url": "https://github.com/g0v-data/hackpad-backup-g0v.git",
-    "hackfoldr_repo_url": "git@github.com:jmehsieh/hackfoldr-backup-g0v.git"
+    "foldrs_index" :"https://g0v.github.io/pads2foldrs/foldrs.json",
+    "foldrs_repo": "git@github.com:jmehsieh/hackfoldr-backup-g0v.git"
 }

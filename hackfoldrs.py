@@ -1,6 +1,4 @@
-from bs4 import BeautifulSoup, SoupStrainer
 from collections import OrderedDict
-from copy import deepcopy
 from datetime import datetime, timezone
 import json
 import logging
@@ -15,68 +13,12 @@ import requests
 
 class Hackfoldrs(object):
 
-    def __init__(self, repo_url, repo_path, gen_foldrs_path):
+    def __init__(self, index_url, repo_url, repo_path, gen_foldrs_path):
+        self.index_url = index_url
         self.repo_url = repo_url
         self.repo_path = repo_path
         self.repo = None
         self.gen_foldrs_path = gen_foldrs_path
-
-    def _find_new_foldrs(self, diff_pads, pads_path):
-        """ Construct new hackfoldr indexes by
-        scanning hackfoldr links from hackpad htmls """
-
-        with open(join(pads_path, 'pads.json'), 'r') as f:
-            pads = json.load(f)
-            pads = [p for p in pads if p['padid'] in diff_pads]
-
-        foldrs = {}
-        for pad in pads:
-            pad_id = pad['padid']
-
-            with open(join(pads_path, '{}.html').format(pad_id), 'r') as f:
-                html = f.read()
-
-            logging.info('scanning {}.html'.format(pad_id))
-
-            for link in BeautifulSoup(html, "html.parser", parse_only=SoupStrainer('a')):
-                if link.has_attr('href'):
-                    url = link['href']
-                    parsed = urlparse(url)
-                    paths = parsed.path.split('/')
-                    if 'hackfoldr.org' not in parsed.netloc:
-                        continue
-                    if len(paths) < 2 or not paths[1]:
-                        continue
-
-                    foldr_url = parsed._replace(path=''.join(paths[:2])).geturl()
-                    foldr_id = paths[1]
-                    if foldr_id not in foldrs:
-                        foldrs[foldr_id] = {'url': foldr_url, 'hackpads': set()}
-                    if 'beta' in parsed.netloc:
-                        foldrs[foldr_id]['url'] = foldr_url
-                    foldrs[foldr_id]['hackpads'].add(pad_id)
-
-        return foldrs
-
-    def _merged_foldr(self, old, new):
-        _old = deepcopy(old)
-        _new = deepcopy(new)
-        for k, v in _new.items():
-            if isinstance(v, list):
-                _o = set(_old.get(k, []))
-                _n = set(v)
-                _u = _o | _n
-                _old.update({k: sorted(list(_u))})
-            elif isinstance(v, set):
-                _u = _old.get(k, set()) | v
-                _old.update({k: _u})
-            elif isinstance(v, dict):
-                raise NotImplementedError
-            else:
-                if k == 'url' and 'beta' not in v and _old.get(k, ''):
-                    continue
-                _old.update({k: v})
-        return _old
 
     def _get_csv_ethercalc(self, foldr_id, hackfoldr_version):
         csv, updated_at = None, None
@@ -147,24 +89,13 @@ class Hackfoldrs(object):
             logging.info('git pull: {}'.format(self.repo_url))
             self.repo.remote().pull()
 
-    def gen_foldrs(self, diff_pads, pads_path):
+    def gen_foldrs(self):
         makedirs(self.gen_foldrs_path, exist_ok=True)
+        foldrs = requests.get(self.index_url).json()
         fn = 'foldrs.json'
 
-        # merge old w/ new
-        try:
-            with open(join(self.repo_path, fn), 'r') as f:
-                old = json.load(f)
-                for v in old.values():
-                    v.update({'hackpads': set(v.get('hackpads', []))})
-        except OSError:
-            old = {}
-        new = self._find_new_foldrs(diff_pads, pads_path)
-        mix = {_id: self._merged_foldr(old.get(_id, {}), new.get(_id, {}))
-               for _id in old.keys() | new.keys()}
-
         # fetch csvs
-        for _id, foldr in mix.items():
+        for _id, foldr in foldrs.items():
             hackfoldr_version = 2.0 if 'beta' in urlparse(foldr.get('url', '')).netloc else 1.0
             source, csv, updated_at = self._get_csv(_id, hackfoldr_version)
             if source and csv and updated_at:
@@ -173,14 +104,12 @@ class Hackfoldrs(object):
                 with open(join(self.gen_foldrs_path, '{}.json').format(_id), 'w') as f:
                     json.dump(csv, f, indent=2, ensure_ascii=False)
 
-        # convert 'hackpads' from set to list
-        # remove foldrs without 'source' key
-        clean = {_id: f.update({'hackpads': sorted(list(f['hackpads']))}) or f
-                 for _id, f in mix.items() if 'source' in f}
+        # filter foldrs with 'source' key
+        foldrs = {k: v for k, v in foldrs.items() if 'source' in v}
 
         # write foldrs.json
         with open(join(self.gen_foldrs_path, fn), 'w') as f:
-            json.dump(clean, f, sort_keys=True, indent=2, ensure_ascii=False)
+            json.dump(foldrs, f, sort_keys=True, indent=2, ensure_ascii=False)
 
         logging.info('gen foldrs complete')
 
