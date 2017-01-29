@@ -1,6 +1,6 @@
 import json
 import logging
-from os.path import abspath, dirname, join
+from os.path import abspath, dirname, expanduser, join
 from urllib.parse import urlparse
 
 from hackfoldrs import Hackfoldrs
@@ -8,6 +8,7 @@ from hackfoldrs import Hackfoldrs
 BASE = dirname(abspath(__file__))
 DATA = join(BASE, '_data')
 GEN_FOLDRS = join(DATA, 'gen_foldrs')
+GIT_SSH_COMMAND = 'ssh -i {}'.format(expanduser('~/.ssh/id_rsa'))
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s', datefmt='%I:%M:%S %p')
 
 
@@ -34,7 +35,7 @@ def backup():
     repo_path = join(DATA, dir_name)
 
     # setup hackfoldr repo
-    hackfoldrs = Hackfoldrs(index_url, repo_url, repo_path, GEN_FOLDRS)
+    hackfoldrs = Hackfoldrs(index_url, repo_url, repo_path, GEN_FOLDRS, GIT_SSH_COMMAND)
     hackfoldrs.pull_repo()
 
     hackfoldrs.gen_foldrs()

@@ -13,12 +13,13 @@ import requests
 
 class Hackfoldrs(object):
 
-    def __init__(self, index_url, repo_url, repo_path, gen_foldrs_path):
+    def __init__(self, index_url, repo_url, repo_path, gen_foldrs_path, ssh_command):
         self.index_url = index_url
         self.repo_url = repo_url
         self.repo_path = repo_path
         self.repo = None
         self.gen_foldrs_path = gen_foldrs_path
+        self.ssh_command = ssh_command
 
     def _get_csv_ethercalc(self, foldr_id, hackfoldr_version):
         csv, updated_at = None, None
@@ -82,9 +83,12 @@ class Hackfoldrs(object):
     def pull_repo(self):
         try:
             self.repo = Repo(self.repo_path)
+            self.repo.git.update_environment(GTI_SSH_COMMAND=self.ssh_command)
         except NoSuchPathError:
             logging.info('git clone: {}'.format(self.repo_url))
-            self.repo = Repo.clone_from(self.repo_url, self.repo_path)
+            self.repo = Repo.clone_from(self.repo_url,
+                                        self.repo_path,
+                                        env={'GIT_SSH_COMMAND': self.ssh_command})
         else:
             logging.info('git pull: {}'.format(self.repo_url))
             self.repo.remote().pull()
